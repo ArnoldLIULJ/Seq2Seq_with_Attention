@@ -54,9 +54,9 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
         # )
 
         model_ = Seq2seq_Attention(
-            hidden_size=10,
+            hidden_size=128,
             cell = tf.keras.layers.SimpleRNNCell,
-            embedding_layer=tl.layers.Embedding(vocabulary_size=40, embedding_size=20)
+            embedding_layer=tl.layers.Embedding(vocabulary_size=self.vocab_size, embedding_size=self.embedding_size)
             )
         optimizer = tf.optimizers.Adam(learning_rate=0.001)
 
@@ -73,7 +73,7 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
                 with tf.GradientTape() as tape:
                     ## compute outputs
                     output = model_(inputs=[X, dec_seq])
-
+                    # print(output)
                     output = tf.reshape(output, [-1, self.vocab_size])
 
                     loss = cross_entropy_seq(logits=output, target_seqs=target_seq)
