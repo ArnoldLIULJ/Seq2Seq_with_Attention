@@ -72,7 +72,6 @@ class Encoder(Layer):
                 states = [states]
             output, states = self.cell.call(src_seq[:,time_step,:], states, training=self.is_train)
             encoding_hidden_states.append(states[0])
-        print("done")
         return output, encoding_hidden_states, states[0]
         
 
@@ -118,8 +117,6 @@ class Decoder(Layer):
         a = tf.nn.softmax(e, axis=-1)
         a = tf.reduce_sum(a, 1, keepdims=True)
         a = tf.matmul(a, tf.transpose(e, perm=[0,2,1]))
-        a = tf.squeeze(a, axis=1) # [B, T]
-        a = tf.expand_dims(a, 1) # [B,1,T]
         a = tf.matmul(a, e) # [B, 1, H]
         return a
 

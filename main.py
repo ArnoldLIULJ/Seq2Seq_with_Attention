@@ -36,7 +36,7 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
 
         assert cls.src_len == cls.tgt_len
 
-        cls.num_epochs = 100
+        cls.num_epochs = 500
         cls.n_step = cls.src_len // cls.batch_size
 
     @classmethod
@@ -77,7 +77,6 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
                     output = tf.reshape(output, [-1, self.vocab_size])
 
                     loss = cross_entropy_seq(logits=output, target_seqs=target_seq)
-
                     grad = tape.gradient(loss, model_.all_weights)
                     optimizer.apply_gradients(zip(grad, model_.all_weights))
 
