@@ -26,8 +26,8 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
         cls.vocab_size = 20
         cls.embedding_size = 32
         cls.dec_seq_length = 5
-        cls.trainX = np.random.randint(20, size=(50, 6))
-        cls.trainY = np.random.randint(20, size=(50, cls.dec_seq_length + 1))
+        cls.trainX = np.random.randint(20, size=(100, 6))
+        cls.trainY = np.random.randint(20, size=(100, cls.dec_seq_length + 1))
         cls.trainY[:, 0] = 0  # start_token == 0
 
         # Parameters
@@ -56,7 +56,7 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
             model_.train()
             trainX, trainY = shuffle(self.trainX, self.trainY)
             total_loss, n_iter = 0, 0
-            for X, Y in tqdm(tl.iterate.minibatches(inputs=trainX, targets=trainY, batch_size=self.batch_size,
+            for X, Y in tqdm(tl.iterate.minibatches(inputs=trainX[20:,:], targets=trainY[20:,:], batch_size=self.batch_size,
                                                     shuffle=False), total=self.n_step,
                              desc='Epoch[{}/{}]'.format(epoch + 1, self.num_epochs), leave=False):
                 dec_seq = Y[:, :-1]
