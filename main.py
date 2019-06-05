@@ -44,20 +44,12 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
         pass
 
     def test_basic_simpleSeq2Seq(self):
-        # model_ = Seq2seq(
-        #     decoder_seq_length=5,
-        #     cell_enc=tf.keras.layers.GRUCell,
-        #     cell_dec=tf.keras.layers.GRUCell,
-        #     n_layer=3,
-        #     n_units=128,
-        #     embedding_layer=tl.layers.Embedding(vocabulary_size=self.vocab_size, embedding_size=self.embedding_size),
-        # )
 
         model_ = Seq2seq_Attention(
             hidden_size=128,
             cell = tf.keras.layers.SimpleRNNCell,
-            embedding_layer=tl.layers.Embedding(vocabulary_size=self.vocab_size, embedding_size=self.embedding_size)
-            )
+            embedding_layer=tl.layers.Embedding(vocabulary_size=self.vocab_size, embedding_size=self.embedding_size),
+            method = 'concat')
         optimizer = tf.optimizers.Adam(learning_rate=0.001)
 
         for epoch in range(self.num_epochs):
@@ -77,8 +69,8 @@ class Model_SEQ2SEQ_Test(CustomTestCase):
                     output = tf.reshape(output, [-1, self.vocab_size])
 
                     loss = cross_entropy_seq(logits=output, target_seqs=target_seq)
-                    grad = tape.gradient(loss, model_.all_weights)
-                    optimizer.apply_gradients(zip(grad, model_.all_weights))
+                    grad = tape.gradient(loss, model_.trainable_weights)
+                    optimizer.apply_gradients(zip(grad, model_.trainable_weights))
 
                 total_loss += loss
                 n_iter += 1

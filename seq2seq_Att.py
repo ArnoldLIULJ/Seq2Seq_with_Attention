@@ -9,39 +9,7 @@ from tensorlayer.layers import Dense, Dropout, Input
 from tensorlayer.layers.core import Layer
 
 
-# class Attention(Layer):
-#     def __init__(self, hidden_size):
-#         super(Attention, self).__init__()
-#         self.hidden_size = hidden_size
-#         self.build(tuple())
-#         self._built = True
 
-#     def build(self, inputs_shape):
-#         self.W = self._get_weights("W", shape=(2*self.hidden_size, self.hidden_size))
-
-#     def forward(self, encoding_hidden, hidden):
-#         # encoding = [B, T, H]
-#         # hidden = [B,H]->[B,1,H]->[B,T,H]
-        
-#         hidden = tf.expand_dims(hidden, 1)
-#         hidden = tf.tile(hidden, [1, encoding_hidden.shape[1],1])
-        
-#         # combined = [B,T,2H]
-#         combined = tf.concat([hidden, encoding_hidden], 2)
-        
-#         combined = tf.cast(combined, tf.float32)
-#         e = tf.tensordot(combined, self.W, axes=[[2], [0]]) # e = [B,T,H]
-#         # a = [B,T,H]->[B,1,H]->[B,1,T]
-#         a = tf.nn.softmax(e, axis=-1)
-#         a = tf.reduce_sum(a, 1, keepdims=True)
-#         a = tf.matmul(a, tf.transpose(e, perm=[0,2,1]))
-#         a = tf.squeeze(a, axis=1) # [B, T]
-#         a = tf.expand_dims(a, 1) # [B,1,T]
-#         a = tf.matmul(a, e) # [B, 1, H]
-#         return a
-
-#     def __repr__(self):
-#         return "attention layer"
 
 
 class Encoder(Layer):
@@ -78,49 +46,66 @@ class Encoder(Layer):
 
 
 
-class Decoder(Layer):
-    def __init__(self, hidden_size, cell, embedding_layer, name = None):
-        super(Decoder, self).__init__(name)
+class Decoder_Attention(Layer):
+    def __init__(self, hidden_size, cell, embedding_layer, method, name = None):
+        super(Decoder_Attention, self).__init__(name)
         self.cell = cell(hidden_size)
         self.hidden_size = hidden_size
         self.embedding_layer = embedding_layer
-        #self.att_layer = Attention(hidden_size)
+        self.method = method
         self.build((None, hidden_size+self.embedding_layer.embedding_size))
         self._built = True
         
         
     def build(self, inputs_shape):
-        #self.att_layer.build(tuple())
         self.cell.build(input_shape=tuple(inputs_shape))
         self._built = True
-        self.W = self._get_weights("W", shape=(2*self.hidden_size, self.hidden_size))
-        
+        if self.method is "concat":
+            self.W = self._get_weights("W", shape=(2*self.hidden_size, self.hidden_size))
+            self.V = self._get_weights("V", shape=(self.hidden_size, 1))
+        elif self.method is "general":
+            self.W = self._get_weights("W", shape=(self.hidden_size, self.hidden_size))
         if self._trainable_weights is None:
             self._trainable_weights = list()
         
         for var in self.cell.trainable_variables:
             self._trainable_weights.append(var)
 
-    def score(self, encoding_hidden, hidden):
+    def score(self, encoding_hidden, hidden, method):
         # encoding = [B, T, H]
-        # hidden = [B,H]->[B,1,H]->[B,T,H]
+        # hidden = [B, H]
         
-        hidden = tf.expand_dims(hidden, 1)
-        hidden = tf.tile(hidden, [1, encoding_hidden.shape[1],1])
-        
-        # combined = [B,T,2H]
-        combined = tf.concat([hidden, encoding_hidden], 2)
-        
-        combined = tf.cast(combined, tf.float32)
-        e = tf.tensordot(combined, self.W, axes=[[2], [0]]) # e = [B,T,H]
-        # a = [B,T,H]->[B,1,H]->[B,1,T]
-        a = tf.nn.softmax(e, axis=-1)
-        a = tf.reduce_sum(a, 1, keepdims=True)
-        a = tf.matmul(a, tf.transpose(e, perm=[0,2,1]))
-        a = tf.matmul(a, e) # [B, 1, H]
-        return a
 
-    def forward(self, dec_seq, enc_hiddens, last_hidden):
+
+        # combined = [B,T,2H]
+        if method is "concat":
+            # hidden = [B,H]->[B,1,H]->[B,T,H]
+            hidden = tf.expand_dims(hidden, 1)
+            hidden = tf.tile(hidden, [1, encoding_hidden.shape[1],1])
+            # combined = [B,T,2H]
+            combined = tf.concat([hidden, encoding_hidden], 2)
+            combined = tf.cast(combined, tf.float32)
+            score = tf.tensordot(combined, self.W, axes=[[2], [0]]) # score = [B,T,H]
+            score = tf.nn.tanh(score) # score = [B,T,H]
+            score = tf.tensordot(self.V, score, axes=[[0], [2]]) # score = [1,B,T]
+            score = tf.squeeze(score, axis=0) # score = [B,T]
+            
+        elif method is "dot":
+            # hidden = [B,H]->[B,H,1]
+            hidden = tf.expand_dims(hidden, 2)
+            score = tf.matmul(encoding_hidden, hidden)
+            score = tf.squeeze(score, axis=2)
+        elif method is "general":
+            # hidden = [B,H]->[B,H,1]
+            score = tf.matmul(hidden, self.W)
+            score = tf.expand_dims(score, 2)
+            score = tf.matmul(encoding_hidden, score)
+            score = tf.squeeze(score, axis=2)
+            
+        score = tf.nn.softmax(score, axis=-1) # score = [B,T]
+        return score
+
+    def forward(self, dec_seq, enc_hiddens, last_hidden, method):
         # dec_seq = [B, T], enc_hiddens = [B, T, H], last_hidden = [B, H]
         # dec_out = [B, T, V]
         
@@ -128,8 +113,10 @@ class Decoder(Layer):
         states = last_hidden
         cell_outputs = list()
         for time_step in range(total_steps):
-            context = self.score(enc_hiddens, last_hidden) # [B, 1, H]
-            context = tf.squeeze(context, 1)
+            attention_weights = self.score(enc_hiddens, last_hidden, method) 
+            attention_weights = tf.expand_dims(attention_weights, 1) #[B, 1, T]
+            context = tf.matmul(attention_weights, enc_hiddens) #[B, 1, H]
+            context = tf.squeeze(context, 1) #[B, H]
             inputs = tf.concat([dec_seq[:,time_step,:], context], 1)
             if not isinstance(states, list):
                 states = [states]
@@ -157,12 +144,13 @@ hidden = tl.layers.Input([16,10])
 
 
 class Seq2seq_Attention(Model):
-    def __init__(self, hidden_size, embedding_layer, cell, name=None):
+    def __init__(self, hidden_size, embedding_layer, cell, method, name=None):
         super(Seq2seq_Attention, self).__init__(name)
         self.enc_layer = Encoder(hidden_size, cell, embedding_layer)
-        self.dec_layer = Decoder(hidden_size, cell, embedding_layer)
+        self.dec_layer = Decoder_Attention(hidden_size, cell, embedding_layer, method=method)
         self.embedding_layer = embedding_layer
         self.dense_layer = tl.layers.Dense(n_units=self.embedding_layer.vocabulary_size, in_channels=hidden_size)
+        self.method = method
     
     def forward(self, inputs):
         src_seq, dec_seq = inputs[0], inputs[1]
@@ -172,7 +160,7 @@ class Seq2seq_Attention(Model):
         encoding_hidden_states = tf.convert_to_tensor(encoding_hidden_states)
         encoding_hidden_states = tf.transpose(encoding_hidden_states, perm=[1,0,2])
         last_hidden_states = tf.convert_to_tensor(last_hidden_states)
-        dec_output = self.dec_layer(dec_seq, encoding_hidden_states, last_hidden_states)
+        dec_output = self.dec_layer(dec_seq, encoding_hidden_states, last_hidden_states, method=self.method)
         batch_size = dec_output.shape[0]
         dec_output = tf.reshape(dec_output, [-1, dec_output.shape[-1]])
         dec_output = self.dense_layer(dec_output)
