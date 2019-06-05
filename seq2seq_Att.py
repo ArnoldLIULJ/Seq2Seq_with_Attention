@@ -74,9 +74,6 @@ class Decoder_Attention(Layer):
     def score(self, encoding_hidden, hidden, method):
         # encoding = [B, T, H]
         # hidden = [B, H]
-        
-
-
         # combined = [B,T,2H]
         if method is "concat":
             # hidden = [B,H]->[B,1,H]->[B,T,H]
@@ -105,10 +102,8 @@ class Decoder_Attention(Layer):
         score = tf.nn.softmax(score, axis=-1) # score = [B,T]
         return score
 
-    def forward(self, dec_seq, enc_hiddens, last_hidden, method):
-        # dec_seq = [B, T], enc_hiddens = [B, T, H], last_hidden = [B, H]
-        # dec_out = [B, T, V]
-        
+    def forward(self, dec_seq, enc_hiddens, last_hidden, method, return_last_state=False):
+        # dec_seq = [B, T_, V], enc_hiddens = [B, T, H], last_hidden = [B, H]
         total_steps = dec_seq.get_shape().as_list()[1]
         states = last_hidden
         cell_outputs = list()
@@ -126,19 +121,11 @@ class Decoder_Attention(Layer):
 
         cell_outputs = tf.convert_to_tensor(cell_outputs)
         cell_outputs = tf.transpose(cell_outputs, perm=[1,0,2])
+        if (return_last_state):
+            return cell_outputs, last_hidden
         return cell_outputs
 
 
-
-enc_seq = np.random.randint(0,high=10, size=(16,8))
-dec_seq = np.random.randint(0,high=10, size=(16,5))
-encoding_hidden = np.random.rand(16,5,10)
-hidden = np.random.rand(16,10)
-encoding_hidden = tl.layers.Input([16, 5, 10])
-hidden = tl.layers.Input([16,10])
-# dec_seq = tl.layers.Input([16,5], dtype=tf.int32)
-# enc_seq = tl.layers.Input([16,8], dtype=tf.int32)
-# attention = Attention(10)
 
 
 
@@ -151,28 +138,44 @@ class Seq2seq_Attention(Model):
         self.embedding_layer = embedding_layer
         self.dense_layer = tl.layers.Dense(n_units=self.embedding_layer.vocabulary_size, in_channels=hidden_size)
         self.method = method
+
+
+    def inference(self, src_seq, encoding_hidden_states, last_hidden_states, seq_length, sos):
+        batch_size = src_seq.shape[0]
+        decoding = [[sos] for i in range(batch_size)]
+        dec_output = self.embedding_layer(decoding)
+        outputs = [[0] for i in range(batch_size)]
+        for step in range(seq_length):
+            dec_output, last_hidden_states = self.dec_layer(dec_output, encoding_hidden_states, last_hidden_states, method=self.method, return_last_state=True)
+            dec_output = tf.reshape(dec_output, [-1, dec_output.shape[-1]])
+            dec_output = self.dense_layer(dec_output)
+            dec_output = tf.reshape(dec_output, [batch_size, -1, dec_output.shape[-1]])
+            dec_output = tf.argmax(dec_output, -1)
+            outputs = tf.concat([outputs, dec_output], 1)
+            dec_output = self.embedding_layer(dec_output)
+            
+        return outputs[:,1:]
+
     
-    def forward(self, inputs):
-        src_seq, dec_seq = inputs[0], inputs[1]
-        dec_seq = self.embedding_layer(dec_seq)
+    def forward(self, inputs, seq_length=20, sos=None):
+        src_seq = inputs[0]
         src_seq = self.embedding_layer(src_seq)
         enc_output, encoding_hidden_states, last_hidden_states = self.enc_layer(src_seq)
         encoding_hidden_states = tf.convert_to_tensor(encoding_hidden_states)
         encoding_hidden_states = tf.transpose(encoding_hidden_states, perm=[1,0,2])
         last_hidden_states = tf.convert_to_tensor(last_hidden_states)
-        dec_output = self.dec_layer(dec_seq, encoding_hidden_states, last_hidden_states, method=self.method)
-        batch_size = dec_output.shape[0]
-        dec_output = tf.reshape(dec_output, [-1, dec_output.shape[-1]])
-        dec_output = self.dense_layer(dec_output)
-        dec_output = tf.reshape(dec_output, [batch_size, -1, dec_output.shape[-1]])
+
+        if (self.is_train):
+            dec_seq = inputs[1]
+            dec_seq = self.embedding_layer(dec_seq)
+            dec_output = self.dec_layer(dec_seq, encoding_hidden_states, last_hidden_states, method=self.method)
+            batch_size = dec_output.shape[0]
+            dec_output = tf.reshape(dec_output, [-1, dec_output.shape[-1]])
+            dec_output = self.dense_layer(dec_output)
+            dec_output = tf.reshape(dec_output, [batch_size, -1, dec_output.shape[-1]])
+        else:
+            dec_output = self.inference(src_seq, encoding_hidden_states, last_hidden_states, seq_length, sos)
+
         return dec_output
-
-
-# model = Seq2seq_Attention(hidden_size=10,
-#     cell = tf.keras.layers.SimpleRNNCell,
-#     embedding_layer=tl.layers.Embedding(vocabulary_size=40, embedding_size=20))
-
-# model.train()
-# model([enc_seq, dec_seq])
 
 
